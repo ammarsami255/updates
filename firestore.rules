@@ -1,0 +1,121 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ==================== HELPER FUNCTIONS ====================
+    
+    // Check if user is authenticated
+    function hasAuth() {
+      return request.auth != null;
+    }
+    
+    // Check if user owns a resource (userId matches auth.uid)
+    function isItemOwner(targetUserId) {
+      return hasAuth() && request.auth.uid == targetUserId;
+    }
+
+    // ==================== USER PROFILES ====================
+    
+    match /users/{userId} {
+      allow read: if hasAuth();
+      allow write: if isItemOwner(userId);
+    }
+
+    // ==================== LISTINGS ====================
+    
+    match /listings/{listingId} {
+      // Anyone can read public listings
+      allow read: if true;
+      
+      // Create: must be authenticated, own the listing, meet validation rules
+      allow create: if hasAuth()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.keys().size() <= 20
+        && request.resource.data.title.size() <= 200
+        && request.resource.data.description.size() <= 5000;
+      
+      // Update/Delete: must own the listing
+      allow update, delete: if hasAuth()
+        && resource.data.userId == request.auth.uid;
+    }
+
+    // ==================== CHATS ====================
+    
+    match /chats/{chatId} {
+      // Allow get if document doesn't exist yet (for getOrCreate pattern)
+      allow get: if hasAuth()
+        && (resource == null || request.auth.uid in resource.data.participants);
+      
+      // Collection query (list): Must be authenticated
+      allow list: if hasAuth() && request.auth.uid != null;
+      
+      // Create: must have exactly 2 participants and be one of them
+      allow create: if hasAuth()
+        && request.resource.data.participants.size() == 2
+        && request.auth.uid in request.resource.data.participants;
+      
+      // Update/Delete: only participants can modify
+      allow update, delete: if hasAuth()
+        && request.auth.uid in resource.data.participants;
+    }
+
+    // ==================== MESSAGES ====================
+    
+    match /chats/{chatId}/messages/{messageId} {
+      // Messages are protected by parent chat rules
+      // For list queries: Firestore ensures the user has access to parent chat via arrayContains
+      // For single doc access: verify user is authenticated
+      
+      // Read single document: Must be authenticated
+      allow get: if hasAuth()
+        && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+      
+      // Collection list: Verify parent chat membership via get()
+      allow list: if hasAuth() && exists(/databases/$(database)/documents/chats/$(chatId)) 
+        && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+      
+      // Create: Must own the message being sent
+      allow create: if hasAuth()
+        && request.resource.data.senderId == request.auth.uid;
+      
+      // Update: Participants can update (for isSeen/seenAt fields)
+      allow update: if hasAuth()
+        && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+      
+      // Delete: Only sender can delete their own messages
+      allow delete: if hasAuth()
+        && resource.data.senderId == request.auth.uid;
+    }
+
+    // ==================== NOTIFICATIONS ====================
+    
+    match /notifications/{userId} {
+      allow read, write: if isItemOwner(userId);
+      
+      match /items/{notificationId} {
+        allow read, write: if isItemOwner(userId);
+      }
+    }
+
+    // ==================== SUPPORT ====================
+    
+    match /support/{id} {
+      allow create: if hasAuth()
+        && request.resource.data.userId == request.auth.uid;
+      
+      allow read: if hasAuth()
+        && resource.data.userId == request.auth.uid;
+    }
+
+    // ==================== SYSTEM COLLECTIONS ====================
+    
+    // Internal collections - no client access
+    match /email_otps/{id} {
+      allow read, write: if false;
+    }
+    
+    match /rate_limits/{id} {
+      allow read, write: if false;
+    }
+  }
+}
