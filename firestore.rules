@@ -9,33 +9,47 @@ service cloud.firestore {
       return request.auth != null;
     }
     
+    // Check if user is NOT anonymous (has verified identity)
+    function hasVerifiedIdentity() {
+      return hasAuth() && request.auth.token.email_verified == true;
+    }
+    
     // Check if user owns a resource (userId matches auth.uid)
     function isItemOwner(targetUserId) {
       return hasAuth() && request.auth.uid == targetUserId;
     }
+    
+    // Check if user has verified identity and owns resource
+    function isVerifiedOwner(targetUserId) {
+      return hasVerifiedIdentity() && request.auth.uid == targetUserId;
+    }
 
+    // ==================== SECURITY: BLOCK ANONYMOUS USERS ====================
+    // Anonymous users (including unverified email) have very limited access
+    
     // ==================== USER PROFILES ====================
     
     match /users/{userId} {
-      allow read: if hasAuth();
-      allow write: if isItemOwner(userId);
+      // Only verified users can read/write their own profile
+      allow read: if isVerifiedOwner(userId);
+      allow write: if isVerifiedOwner(userId);
     }
 
     // ==================== LISTINGS ====================
     
     match /listings/{listingId} {
-      // Anyone can read public listings
+      // PUBLIC: Anyone can read active listings (includes anonymous for discoverability)
       allow read: if true;
       
-      // Create: must be authenticated, own the listing, meet validation rules
-      allow create: if hasAuth()
+      // Only VERIFIED users can create listings
+      allow create: if hasVerifiedIdentity()
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.keys().size() <= 20
         && request.resource.data.title.size() <= 200
         && request.resource.data.description.size() <= 5000;
       
-      // Update/Delete: must own the listing
-      allow update, delete: if hasAuth()
+      // Only verified owners can update/delete their listings
+      allow update, delete: if hasVerifiedIdentity()
         && resource.data.userId == request.auth.uid;
     }
 
@@ -43,19 +57,20 @@ service cloud.firestore {
     
     match /chats/{chatId} {
       // Allow get if document doesn't exist yet (for getOrCreate pattern)
-      allow get: if hasAuth()
+      // Only verified users can access chats
+      allow get: if hasVerifiedIdentity()
         && (resource == null || request.auth.uid in resource.data.participants);
       
-      // Collection query (list): Must be authenticated
-      allow list: if hasAuth() && request.auth.uid != null;
+      // Collection query (list): Must be verified
+      allow list: if hasVerifiedIdentity() && request.auth.uid != null;
       
-      // Create: must have exactly 2 participants and be one of them
-      allow create: if hasAuth()
+      // Create: must be verified, exactly 2 participants and be one of them
+      allow create: if hasVerifiedIdentity()
         && request.resource.data.participants.size() == 2
         && request.auth.uid in request.resource.data.participants;
       
-      // Update/Delete: only participants can modify
-      allow update, delete: if hasAuth()
+      // Update/Delete: only verified participants can modify
+      allow update, delete: if hasVerifiedIdentity()
         && request.auth.uid in resource.data.participants;
     }
 
@@ -64,46 +79,49 @@ service cloud.firestore {
     match /chats/{chatId}/messages/{messageId} {
       // Messages are protected by parent chat rules
       // For list queries: Firestore ensures the user has access to parent chat via arrayContains
-      // For single doc access: verify user is authenticated
+      // For single doc access: verify user is verified
       
-      // Read single document: Must be authenticated
-      allow get: if hasAuth()
+      // Read single document: Must be verified
+      allow get: if hasVerifiedIdentity()
         && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
       
       // Collection list: Verify parent chat membership via get()
-      allow list: if hasAuth() && exists(/databases/$(database)/documents/chats/$(chatId)) 
+      allow list: if hasVerifiedIdentity() && exists(/databases/$(database)/documents/chats/$(chatId)) 
         && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
       
-      // Create: Must own the message being sent
-      allow create: if hasAuth()
+      // Create: Must own the message and be verified
+      allow create: if hasVerifiedIdentity()
         && request.resource.data.senderId == request.auth.uid;
       
-      // Update: Participants can update (for isSeen/seenAt fields)
-      allow update: if hasAuth()
+      // Update: Verified participants can update (for isSeen/seenAt fields)
+      allow update: if hasVerifiedIdentity()
         && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
       
       // Delete: Only sender can delete their own messages
-      allow delete: if hasAuth()
+      allow delete: if hasVerifiedIdentity()
         && resource.data.senderId == request.auth.uid;
     }
 
     // ==================== NOTIFICATIONS ====================
     
     match /notifications/{userId} {
-      allow read, write: if isItemOwner(userId);
+      // Only verified owner can read/write notifications
+      allow read, write: if isVerifiedOwner(userId);
       
       match /items/{notificationId} {
-        allow read, write: if isItemOwner(userId);
+        allow read, write: if isVerifiedOwner(userId);
       }
     }
 
     // ==================== SUPPORT ====================
     
     match /support/{id} {
-      allow create: if hasAuth()
+      // Only verified users can create support tickets
+      allow create: if hasVerifiedIdentity()
         && request.resource.data.userId == request.auth.uid;
       
-      allow read: if hasAuth()
+      // Only verified owner can read their tickets
+      allow read: if hasVerifiedIdentity()
         && resource.data.userId == request.auth.uid;
     }
 

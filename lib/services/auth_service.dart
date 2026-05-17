@@ -114,33 +114,20 @@ class AuthService {
     }
   }
 
-  /// Sign in anonymously
+  /// Sign in anonymously [DEPRECATED - DISABLED FOR SECURITY]
+  /// 
+  /// Anonymous authentication has been disabled for security reasons.
+  /// Only verified users (email+password or OAuth) can access the application.
+  /// 
+  /// @deprecated This method will throw UnsupportedError
+  /// @throws UnsupportedError Always - anonymous auth is no longer supported
   static Future<AuthResult> signInAnonymously() async {
-    try {
-      final UserCredential credential = await _auth.signInAnonymously();
-      final user = credential.user;
-
-      if (user == null) {
-        return AuthResult.failure('Failed to sign in anonymously.');
-      }
-
-      final existingUser = await DatabaseService.getUserDocument(user.uid);
-      if (existingUser == null) {
-        await DatabaseService.createUserDocument(
-          uid: user.uid,
-          name: 'Guest',
-          email: '',
-        );
-      }
-
-      return AuthResult.success();
-    } on FirebaseAuthException catch (e) {
-      return AuthResult.failure(_mapError(e.code));
-    } catch (e) {
-      return AuthResult.failure(
-        'Failed to sign in anonymously. Please try again.',
-      );
-    }
+    // SECURITY: Anonymous auth is disabled for production safety
+    // Anonymous users cannot verify their identity and bypass email verification
+    throw UnsupportedError(
+      'Anonymous authentication is disabled for security reasons. '
+      'Please use email/password, Google, or phone authentication instead.',
+    );
   }
 
   /// Register new user with Firebase built-in email verification
