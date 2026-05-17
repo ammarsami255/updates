@@ -469,3 +469,307 @@ exports.deleteToken = onCall({cors: true}, async (request) => {
   await userRef.update(updates);
   return {success: true};
 });
+
+// ============================================================
+// 🔐 SERVER-SIDE VALIDATION LAYER
+// ============================================================
+
+/**
+ * Validates listing data server-side
+ * Cannot be bypassed from client
+ */
+const LISTING_VALIDATION = {
+  MIN_TITLE: 3,
+  MAX_TITLE: 200,
+  MIN_DESCRIPTION: 10,
+  MAX_DESCRIPTION: 5000,
+  MIN_PRICE: 1,
+  MAX_PRICE: 20,
+  MIN_LOCATION: 1,
+  MAX_LOCATION: 100,
+  MIN_PHONE: 10,
+  MAX_PHONE: 20,
+  VALID_CATEGORIES: ['electronics', 'vehicles', 'real_estate', 'furniture', 'clothing', 'services', 'jobs', 'other'],
+  VALID_TYPES: ['sell', 'rent', 'exchange', 'service'],
+  VALID_STATUSES: ['active', 'pending', 'sold', 'deleted', 'archived'],
+};
+
+function validateListingData(data) {
+  const errors = [];
+  
+  // Title validation
+  if (!data.title || typeof data.title !== 'string') {
+    errors.push('title is required');
+  } else if (data.title.length < LISTING_VALIDATION.MIN_TITLE) {
+    errors.push(`title must be at least ${LISTING_VALIDATION.MIN_TITLE} characters`);
+  } else if (data.title.length > LISTING_VALIDATION.MAX_TITLE) {
+    errors.push(`title must not exceed ${LISTING_VALIDATION.MAX_TITLE} characters`);
+  }
+  
+  // Description validation
+  if (!data.description || typeof data.description !== 'string') {
+    errors.push('description is required');
+  } else if (data.description.length < LISTING_VALIDATION.MIN_DESCRIPTION) {
+    errors.push(`description must be at least ${LISTING_VALIDATION.MIN_DESCRIPTION} characters`);
+  } else if (data.description.length > LISTING_VALIDATION.MAX_DESCRIPTION) {
+    errors.push(`description must not exceed ${LISTING_VALIDATION.MAX_DESCRIPTION} characters`);
+  }
+  
+  // Category validation
+  if (!data.category || typeof data.category !== 'string') {
+    errors.push('category is required');
+  } else if (!LISTING_VALIDATION.VALID_CATEGORIES.includes(data.category)) {
+    errors.push(`category must be one of: ${LISTING_VALIDATION.VALID_CATEGORIES.join(', ')}`);
+  }
+  
+  // Type validation
+  if (!data.type || typeof data.type !== 'string') {
+    errors.push('type is required');
+  } else if (!LISTING_VALIDATION.VALID_TYPES.includes(data.type)) {
+    errors.push(`type must be one of: ${LISTING_VALIDATION.VALID_TYPES.join(', ')}`);
+  }
+  
+  // Price validation
+  if (!data.price || typeof data.price !== 'string') {
+    errors.push('price is required');
+  } else if (data.price.length > LISTING_VALIDATION.MAX_PRICE) {
+    errors.push(`price must not exceed ${LISTING_VALIDATION.MAX_PRICE} characters`);
+  }
+  
+  // Location validation
+  if (!data.location || typeof data.location !== 'string') {
+    errors.push('location is required');
+  } else if (data.location.length > LISTING_VALIDATION.MAX_LOCATION) {
+    errors.push(`location must not exceed ${LISTING_VALIDATION.MAX_LOCATION} characters`);
+  }
+  
+  // Phone validation
+  if (!data.phone || typeof data.phone !== 'string') {
+    errors.push('phone is required');
+  } else if (data.phone.length < LISTING_VALIDATION.MIN_PHONE || data.phone.length > LISTING_VALIDATION.MAX_PHONE) {
+    errors.push(`phone must be between ${LISTING_VALIDATION.MIN_PHONE} and ${LISTING_VALIDATION.MAX_PHONE} characters`);
+  }
+  
+  // Image URLs validation (if provided)
+  if (data.imageUrls) {
+    if (!Array.isArray(data.imageUrls)) {
+      errors.push('imageUrls must be an array');
+    } else if (data.imageUrls.length > 10) {
+      errors.push('imageUrls must not exceed 10 items');
+    } else {
+      for (const url of data.imageUrls) {
+        if (typeof url !== 'string' || (!url.startsWith('https://') && url.length > 0)) {
+          errors.push('imageUrls must contain valid HTTPS URLs');
+          break;
+        }
+      }
+    }
+  }
+  
+  return errors;
+}
+
+/**
+ * Validate user profile data server-side
+ */
+const USER_VALIDATION = {
+  MIN_NAME: 2,
+  MAX_NAME: 100,
+  MAX_EMAIL: 254,
+  MAX_PHONE: 20,
+};
+
+function validateUserProfileData(data) {
+  const errors = [];
+  
+  // Name validation
+  if (!data.name || typeof data.name !== 'string') {
+    errors.push('name is required');
+  } else if (data.name.length < USER_VALIDATION.MIN_NAME) {
+    errors.push(`name must be at least ${USER_VALIDATION.MIN_NAME} characters`);
+  } else if (data.name.length > USER_VALIDATION.MAX_NAME) {
+    errors.push(`name must not exceed ${USER_VALIDATION.MAX_NAME} characters`);
+  }
+  
+  // Email format validation
+  const emailRegex = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
+  if (!data.email || typeof data.email !== 'string') {
+    errors.push('email is required');
+  } else if (!emailRegex.test(data.email)) {
+    errors.push('email must be a valid email address');
+  } else if (data.email.length > USER_VALIDATION.MAX_EMAIL) {
+    errors.push(`email must not exceed ${USER_VALIDATION.MAX_EMAIL} characters`);
+  }
+  
+  // Phone (optional) validation
+  if (data.phone) {
+    if (typeof data.phone !== 'string') {
+      errors.push('phone must be a string');
+    } else if (data.phone.length > USER_VALIDATION.MAX_PHONE) {
+      errors.push(`phone must not exceed ${USER_VALIDATION.MAX_PHONE} characters`);
+    }
+  }
+  
+  return errors;
+}
+
+/**
+ * Validate chat message data server-side
+ */
+const MESSAGE_VALIDATION = {
+  MIN_CONTENT: 1,
+  MAX_CONTENT: 2000,
+  VALID_TYPES: ['text', 'image', 'system'],
+};
+
+function validateMessageData(data) {
+  const errors = [];
+  
+  // Content validation
+  if (!data.content || typeof data.content !== 'string') {
+    errors.push('content is required');
+  } else if (data.content.length < MESSAGE_VALIDATION.MIN_CONTENT) {
+    errors.push('content cannot be empty');
+  } else if (data.content.length > MESSAGE_VALIDATION.MAX_CONTENT) {
+    errors.push(`content must not exceed ${MESSAGE_VALIDATION.MAX_CONTENT} characters`);
+  }
+  
+  // Type validation
+  if (!data.type || typeof data.type !== 'string') {
+    errors.push('type is required');
+  } else if (!MESSAGE_VALIDATION.VALID_TYPES.includes(data.type)) {
+    errors.push(`type must be one of: ${MESSAGE_VALIDATION.VALID_TYPES.join(', ')}`);
+  }
+  
+  return errors;
+}
+
+// ============================================================
+// ☁️ CLOUD FUNCTIONS FOR VALIDATION
+// ============================================================
+
+/**
+ * Validate listing data - callable from client for pre-check
+ * Returns validation result without creating the listing
+ */
+exports.validateListing = onCall({cors: true}, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Must be authenticated.");
+  }
+  
+  if (!request.auth.token.email_verified) {
+    throw new HttpsError("permission-denied", "Email must be verified.");
+  }
+  
+  const data = request.data || {};
+  const errors = validateListingData(data);
+  
+  return {
+    valid: errors.length === 0,
+    errors,
+    validated: {
+      title: data.title?.substring(0, LISTING_VALIDATION.MAX_TITLE),
+      description: data.description?.substring(0, LISTING_VALIDATION.MAX_DESCRIPTION),
+      category: data.category,
+      type: data.type,
+      price: data.price?.substring(0, LISTING_VALIDATION.MAX_PRICE),
+      location: data.location?.substring(0, LISTING_VALIDATION.MAX_LOCATION),
+      phone: data.phone?.substring(0, LISTING_VALIDATION.MAX_PHONE),
+    }
+  };
+});
+
+/**
+ * Validate user profile data - callable from client for pre-check
+ */
+exports.validateUserProfile = onCall({cors: true}, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Must be authenticated.");
+  }
+  
+  const data = request.data || {};
+  const errors = validateUserProfileData(data);
+  
+  return {
+    valid: errors.length === 0,
+    errors,
+    validated: {
+      name: data.name?.substring(0, USER_VALIDATION.MAX_NAME),
+      email: data.email,
+    }
+  };
+});
+
+/**
+ * Validate message before sending - callable from client for pre-check
+ */
+exports.validateMessage = onCall({cors: true}, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Must be authenticated.");
+  }
+  
+  if (!request.auth.token.email_verified) {
+    throw new HttpsError("permission-denied", "Email must be verified.");
+  }
+  
+  const data = request.data || {};
+  const errors = validateMessageData(data);
+  
+  return {
+    valid: errors.length === 0,
+    errors,
+    validated: {
+      content: data.content?.substring(0, MESSAGE_VALIDATION.MAX_CONTENT),
+      type: data.type,
+    }
+  };
+});
+
+/**
+ * Firestore trigger: Validate listing on creation
+ * Rejects invalid listings server-side
+ */
+exports.onListingCreated = onDocumentCreated(
+  "listings/{listingId}",
+  async (event) => {
+    const snap = event.data;
+    if (!snap) return;
+    
+    const data = snap.data() || {};
+    const errors = validateListingData(data);
+    
+    if (errors.length > 0) {
+      console.error('Listing validation failed:', errors);
+      // Delete invalid listing
+      await snap.ref.delete();
+      console.log('Invalid listing deleted:', snap.id);
+      return;
+    }
+    
+    console.log('Listing validated successfully:', snap.id);
+  }
+);
+
+/**
+ * Firestore trigger: Validate user profile on creation
+ * Ensures required fields and format
+ */
+exports.onUserProfileCreated = onDocumentCreated(
+  "users/{userId}",
+  async (event) => {
+    const snap = event.data;
+    if (!snap) return;
+    
+    const data = snap.data() || {};
+    const errors = validateUserProfileData(data);
+    
+    if (errors.length > 0) {
+      console.error('User profile validation failed:', errors);
+      await snap.ref.delete();
+      console.log('Invalid user profile deleted:', snap.id);
+      return;
+    }
+    
+    console.log('User profile validated successfully:', snap.id);
+  }
+);
